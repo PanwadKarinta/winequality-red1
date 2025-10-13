@@ -18,6 +18,10 @@ try:
     df = pd.read_csv("winequality-red.csv")
     df["quality_label"] = df["quality"].apply(lambda v: 1 if v >= 7 else 0)
 
+    # ตรวจสอบ class distribution
+    print("จำนวนตัวอย่างแต่ละ class:")
+    print(df["quality_label"].value_counts())
+
     X = df.drop(["quality", "quality_label"], axis=1)
     y = df["quality_label"]
 
@@ -29,7 +33,7 @@ try:
         X_scaled, y, test_size=0.1, random_state=42, stratify=y
     )
 
-    # ใช้ Decision Tree + GridSearchCV
+    # ใช้ Decision Tree + GridSearchCV + class balance
     param_grid = {
         "criterion": ["gini", "entropy"],
         "max_depth": [5, 10, 15, None],
@@ -37,7 +41,7 @@ try:
         "min_samples_leaf": [1, 2, 4],
     }
 
-    dt = DecisionTreeClassifier(random_state=42)
+    dt = DecisionTreeClassifier(random_state=42, class_weight="balanced")
     grid_search = GridSearchCV(dt, param_grid, cv=3, n_jobs=-1, verbose=1)
     grid_search.fit(X_train, y_train)
 
@@ -61,6 +65,7 @@ except FileNotFoundError:
     model = None
     scaler = None
 
+
 # -------------------------------
 # ส่วนที่ 2: ฟังก์ชันทำนาย + บันทึกประวัติ
 # -------------------------------
@@ -70,15 +75,15 @@ def predict_quality(*features):
         return "❌ ยังไม่ได้ฝึกโมเดล", None
 
     try:
-        # เตรียมข้อมูลสำหรับทำนาย
         features_dict = {col: val for col, val in zip(FEATURE_COLUMNS, features)}
         df_new = pd.DataFrame([features_dict])
         df_new = df_new[FEATURE_COLUMNS]
         scaled = scaler.transform(df_new)
 
         probs = model.predict_proba(scaled)[0]
-        pred = np.argmax(probs)
+        pred = 1 if probs[1] > 0.4 else 0
         conf = probs[pred]
+
         text = "🍷 ไวน์คุณภาพดี" if pred == 1 else "⚠️ ไวน์คุณภาพไม่ดี"
         result_text = f"{text} (ความมั่นใจ {conf:.2%})"
 
@@ -88,7 +93,6 @@ def predict_quality(*features):
         df_new["model_used"] = "Decision Tree"
         df_new["accuracy"] = f"{model_accuracy*100:.2f}%"
 
-        # append ลง CSV
         if os.path.exists(history_file):
             df_old = pd.read_csv(history_file)
             df_all = pd.concat([df_old, df_new], ignore_index=True)
@@ -96,14 +100,14 @@ def predict_quality(*features):
             df_all = df_new
         df_all.to_csv(history_file, index=False)
 
-        return result_text, df_all.tail(10)  # แสดง 10 รายการล่าสุด
+        return result_text, df_all.tail(10)
 
     except Exception as e:
         return f"เกิดข้อผิดพลาด: {e}", None
 
 
 # -------------------------------
-# ส่วนที่ 3: หน้าเว็บ Gradio (ธีมไวน์เข้ม)
+# ส่วนที่ 3: หน้าเว็บ Gradio
 # -------------------------------
 feature_translations = {
     "fixed acidity": "ความเข้มข้นของกรดคงที่",
@@ -144,7 +148,6 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="rose", secondary_hue="rose")) a
         for col in FEATURE_COLUMNS
     ]
 
-    # ตัวอย่างค่า
     gr.Examples(
         examples=[sample_good, sample_bad],
         inputs=inputs_list,
@@ -153,7 +156,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="rose", secondary_hue="rose")) a
 
     with gr.Row():
         predict_btn = gr.Button("🔮 ทำนายคุณภาพไวน์", variant="primary")
-        clear_btn = gr.ClearButton(value="ล้างข้อมูล")
+        clear_btn = gr.ClearButton(components=inputs_list, value="ล้างข้อมูล")
 
     output_text = gr.Textbox(
         label="ผลการทำนาย (Prediction Result)",
@@ -167,6 +170,8 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="rose", secondary_hue="rose")) a
         label="📜 ประวัติการทำนายล่าสุด",
         interactive=False
     )
+
+    clear_btn.add(components=[output_text, history_output])
 
     with gr.Accordion("📘 คำอธิบายค่าทางเคมีของไวน์ (Feature Descriptions)", open=False):
         gr.Markdown(
@@ -195,7 +200,8 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="rose", secondary_hue="rose")) a
     )
 
 # -------------------------------
-# ส่วนที่ 4: รันโปรแกรม
+# ส่วนที่ 4: รันโปรแกรม (รองรับ Render)
 # -------------------------------
 if __name__ == "__main__":
-    demo.launch()
+    port = int(os.environ.get("PORT", 7860))
+    demo.launch(server_name="0.0.0.0", server_port=port)
