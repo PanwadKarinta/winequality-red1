@@ -12,15 +12,11 @@ import os
 # -------------------------------
 model_accuracy = 0.0
 best_params = {}
-history_file = "wine_history.csv"  # สำหรับเก็บประวัติการกรอกข้อมูล
+history_file = "wine_history.csv"
 
 try:
     df = pd.read_csv("winequality-red.csv")
     df["quality_label"] = df["quality"].apply(lambda v: 1 if v >= 7 else 0)
-
-    # ตรวจสอบ class distribution
-    print("จำนวนตัวอย่างแต่ละ class:")
-    print(df["quality_label"].value_counts())
 
     X = df.drop(["quality", "quality_label"], axis=1)
     y = df["quality_label"]
@@ -33,7 +29,6 @@ try:
         X_scaled, y, test_size=0.1, random_state=42, stratify=y
     )
 
-    # ใช้ Decision Tree + GridSearchCV + class balance
     param_grid = {
         "criterion": ["gini", "entropy"],
         "max_depth": [5, 10, 15, None],
@@ -51,10 +46,6 @@ try:
     predictions = model.predict(X_test)
     model_accuracy = accuracy_score(y_test, predictions)
 
-    print("✅ โมเดล Decision Tree ฝึกเสร็จเรียบร้อย")
-    print(f"📊 ความแม่นยำ: {model_accuracy*100:.2f}%")
-    print(f"Best Parameters: {best_params}")
-
 except FileNotFoundError:
     print("❌ ไม่พบไฟล์ winequality-red.csv")
     FEATURE_COLUMNS = [
@@ -70,7 +61,7 @@ except FileNotFoundError:
 # ส่วนที่ 2: ฟังก์ชันทำนาย + บันทึกประวัติ
 # -------------------------------
 def predict_quality(*features):
-    """ทำนายคุณภาพไวน์และบันทึกข้อมูลลงไฟล์ประวัติ"""
+    """ทำนายคุณภาพไวน์และบันทึกข้อมูล"""
     if model is None or scaler is None:
         return "❌ ยังไม่ได้ฝึกโมเดล", None
 
@@ -81,15 +72,20 @@ def predict_quality(*features):
         scaled = scaler.transform(df_new)
 
         probs = model.predict_proba(scaled)[0]
-        pred = 1 if probs[1] > 0.4 else 0
+        pred = np.argmax(probs)
         conf = probs[pred]
 
-        text = "🍷 ไวน์คุณภาพดี" if pred == 1 else "⚠️ ไวน์คุณภาพไม่ดี"
-        result_text = f"{text} (ความมั่นใจ {conf:.2%})"
+        result_text = (
+            f"🍷 ไวน์คุณภาพดี: {probs[1]*100:.2f}%\n"
+            f"⚠️ ไวน์คุณภาพไม่ดี: {probs[0]*100:.2f}%"
+        )
+
+        text_label = "Good" if pred == 1 else "Bad"
 
         # บันทึกประวัติ
-        df_new["predicted_label"] = "Good" if pred == 1 else "Bad"
-        df_new["confidence"] = f"{conf:.2%}"
+        df_new["predicted_label"] = text_label
+        df_new["prob_good"] = f"{probs[1]*100:.2f}%"
+        df_new["prob_bad"] = f"{probs[0]*100:.2f}%"
         df_new["model_used"] = "Decision Tree"
         df_new["accuracy"] = f"{model_accuracy*100:.2f}%"
 
@@ -104,6 +100,11 @@ def predict_quality(*features):
 
     except Exception as e:
         return f"เกิดข้อผิดพลาด: {e}", None
+
+
+def clear_inputs():
+    """ล้างเฉพาะช่องกรอก โดยไม่ล้างประวัติ"""
+    return [None] * len(FEATURE_COLUMNS)
 
 
 # -------------------------------
@@ -156,24 +157,30 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="rose", secondary_hue="rose")) a
 
     with gr.Row():
         predict_btn = gr.Button("🔮 ทำนายคุณภาพไวน์", variant="primary")
-        clear_btn = gr.ClearButton(components=inputs_list, value="ล้างข้อมูล")
+        clear_btn = gr.Button("🧹 ล้างข้อมูลเฉพาะช่องกรอก")
 
     output_text = gr.Textbox(
         label="ผลการทำนาย (Prediction Result)",
         interactive=False,
-        lines=2,
+        lines=3,
         show_copy_button=True,
     )
 
     history_output = gr.Dataframe(
-        headers=FEATURE_COLUMNS + ["predicted_label", "confidence", "model_used", "accuracy"],
+        headers=FEATURE_COLUMNS + ["predicted_label", "prob_good", "prob_bad", "model_used", "accuracy"],
         label="📜 ประวัติการทำนายล่าสุด",
         interactive=False
     )
 
-    clear_btn.add(components=[output_text, history_output])
+    predict_btn.click(
+        fn=predict_quality,
+        inputs=inputs_list,
+        outputs=[output_text, history_output]
+    )
 
-    with gr.Accordion("📘 คำอธิบายค่าทางเคมีของไวน์ (Feature Descriptions)", open=False):
+    clear_btn.click(fn=clear_inputs, inputs=None, outputs=inputs_list)
+
+    with gr.Accordion("📘 คำอธิบายค่าทางเคมีของไวน์", open=False):
         gr.Markdown(
             """
             - **Fixed Acidity:** กรดหลักที่ไม่ระเหย  
@@ -191,12 +198,6 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="rose", secondary_hue="rose")) a
 
     gr.HTML(
         "<p style='text-align:center;color:grey;font-size:0.8em;'>สร้างโดย Grandeur Wine AI — ใช้เทคนิค Decision Tree</p>"
-    )
-
-    predict_btn.click(
-        fn=predict_quality,
-        inputs=inputs_list,
-        outputs=[output_text, history_output]
     )
 
 # -------------------------------
