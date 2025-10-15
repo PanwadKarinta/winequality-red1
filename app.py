@@ -75,12 +75,15 @@ def predict_quality(*features):
         pred = np.argmax(probs)
         conf = probs[pred]
 
+        # ข้อความผลลัพธ์ (แสดงทั้งสองความน่าจะเป็น)
         result_text = (
-            f"🍷 ไวน์คุณภาพดี: {probs[1]*100:.2f}%\n"
-            f"⚠️ ไวน์คุณภาพไม่ดี: {probs[0]*100:.2f}%"
+            f"🍷 ผลการทำนาย:\n\n"
+            f"- ไวน์คุณภาพดี (Good): {probs[1]*100:.2f}%\n"
+            f"- ไวน์คุณภาพไม่ดี (Bad): {probs[0]*100:.2f}%\n\n"
+            f"📌 สรุปผล: {'✅ ไวน์คุณภาพดี' if pred == 1 else '⚠️ ไวน์คุณภาพไม่ดี'}"
         )
 
-        text_label = "Good" if pred == 1 else "Bad"
+        text_label = "ไวน์คุณภาพดี" if pred == 1 else "ไวน์คุณภาพไม่ดี"
 
         # บันทึกประวัติ
         df_new["predicted_label"] = text_label
@@ -127,7 +130,7 @@ feature_translations = {
 sample_good = [7.3, 0.65, 0.0, 1.2, 0.065, 15.0, 21.0, 0.9946, 3.39, 0.47, 10.0]
 sample_bad = [6.0, 0.90, 0.00, 5.0, 0.10, 5.0, 15.0, 0.9970, 3.20, 0.40, 8.5]
 
-with gr.Blocks(theme=gr.themes.Soft(primary_hue="rose", secondary_hue="rose")) as demo:
+with gr.Blocks(theme=gr.themes.Soft(primary_hue="rose", secondary_hue="rose")) as app:
     gr.HTML(
         """
         <div style='background-color:#1a001f;padding:20px;border-radius:15px;color:white;text-align:center'>
@@ -162,7 +165,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="rose", secondary_hue="rose")) a
     output_text = gr.Textbox(
         label="ผลการทำนาย (Prediction Result)",
         interactive=False,
-        lines=3,
+        lines=6,
         show_copy_button=True,
     )
 
@@ -205,4 +208,4 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="rose", secondary_hue="rose")) a
 # -------------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 7860))
-    demo.launch(server_name="0.0.0.0", server_port=port)
+    app.launch(server_name="0.0.0.0", server_port=port)
